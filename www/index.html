@@ -1,0 +1,254 @@
+<style type="text/css">
+        html,
+        body {
+            height: 100%;
+            width: 100%;
+        }
+        body {
+            margin: 0;
+        }
+        #map {
+            width: 50%;
+            height: 100%;
+        }
+        .lineConnect {
+            fill: none;
+            stroke-width: 3;
+            stroke-linecap: round;
+            opacity: 1;
+        }
+        .highlight {
+            fill: red;
+            opacity: 1;
+            stroke-width: 3;
+        }
+        .circleMark {
+            fill: #307c91;
+            stroke: black;
+        }
+        .info {
+            padding: 6px 8px;
+            font: 14px/16px Arial, Helvetica, sans-serif;
+            background: white;
+            background: rgba(255,255,255,0.8);
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            border-radius: 5px;
+        }
+        .info h4 {
+            margin: 0 0 5px;
+            color: #777;
+        }
+</style>
+
+<script type="text/javascript" src="d3.v3.js"></script>
+<script src="leaflet.js"></script>
+<script type="text/javascript">
+            d3.select("body").append("div").attr("id", "map");
+            
+            var centerlat = 52.5;
+            var centerlon =  0;
+            var zoomLevel = 6;
+            
+            // path
+            var path1 = d3.svg.line()
+                        .interpolate("cardinal")
+                        .x(function(d) { return map.latLngToLayerPoint(new L.LatLng(d[1], d[0])).x; })
+                        .y(function(d) { return map.latLngToLayerPoint(new L.LatLng(d[1], d[0])).y; })
+                                        
+            // initialize map
+            var map = L.map('map').setView([centerlat, centerlon], zoomLevel);
+
+            L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+                            }).addTo(map);
+            
+            map._initPathRoot();
+            
+            
+            var legend = L.control({position: 'bottomright'});
+
+            var info = L.control();
+            
+            // Radius scale - number of points per away game.
+            var rScale = d3.scale.linear()
+                            .domain([0, 3])
+                            .range([4, 16]);
+
+            info.onAdd = function (map) {
+                this._div = L.DomUtil.create('div', 'info'); // create a div with a class "info"
+                this.update();
+                return this._div;
+            };
+
+            // update information
+            info.update = function (propsHome, propsAway, collection) {
+                var text = '<h4>Away fixtures EPL</h4>';
+                if (propsHome) {
+                    var clubName = propsHome.club;
+                    text += '<b>' + clubName + '</b><br /><br />';
+                    var points = 0;
+                    for (var i=0; i < propsAway.length; i++) {
+                        var homeId = propsAway[i].home_id;
+                        var oppDict = collection.filter(function(d) {
+                                            return d.id == homeId;
+                                        });
+                        
+                        var oppName = oppDict[0].club;
+                        var result = propsAway[i].result;
+                        var homeGoals = parseInt(result.split("-")[0]);
+                        var awayGoals = parseInt(result.split("-")[1]);
+
+                        if (homeGoals < awayGoals) {
+                            var textColour = "#1F40FF";
+                            points += 3;
+                        }else if (homeGoals == awayGoals) {
+                            var textColour = "green";
+                            points += 1;
+                        }else{
+                            var textColour = "#E62020";
+                        }
+                        
+                        
+                        text += oppName + ' ' + '<span style="color:' + textColour + '">' + result + '</span><br />';//clubName + ;
+                    }
+                    text += '<br/><b> Points per away game: ' + d3.format(".3n")(points / propsAway.length) + '</b>';
+                } else {
+                    text += 'Hover over a circle';
+                }
+                this._div.innerHTML = text;
+            };
+
+            info.addTo(map);
+            
+            var svg = d3.select("#map").select("svg");
+            var g = svg.append("g");
+            var toLine = d3.svg.line()
+                .tension(0)
+                .interpolate("cardinal")
+                .x(function(d) {
+                    return map.latLngToLayerPoint(d.LatLng).x
+                })
+                .y(function(d) {
+                    return map.latLngToLayerPoint(d.LatLng).y
+                });
+            
+            
+            var contraction = function() {
+                d3.select(this)
+                    .transition()
+                    .duration(1000)
+                    .attr("r", 10)
+                    .each("end", function() {
+                        d3.select(this)
+                            .transition()
+                            .duration(1000)
+                            .attr("r", 15)
+                            .each("end", contraction)
+                    })
+            };
+
+            d3.json("data.json", function(collection) {
+                collection.stadiums.forEach(function (d, i) {
+                    d.LatLng = new L.LatLng(d.lat,
+                                            d.lng);
+                });
+                
+                var feature = g.selectAll("circle")
+                                 .data(collection.stadiums)
+                                 .enter()
+                                 .append("circle")
+                                 .attr("opacity", 0.9)
+                                 .attr("r", function () {
+                                     var currentId = d3.select(this)[0][0].__data__.id;
+                                            // filter away fixtures
+                                     var awayFixtures = collection.results.filter(function(d) {
+                                        return d.away_id == currentId
+                                     });
+                                     var points = 0;
+                                     for (var i=0; i < awayFixtures.length; i++){
+                                        var newId = awayFixtures[i].home_id;
+                                        var result = awayFixtures[i].result;
+                                        var homeGoals = parseInt(result.split("-")[0]);
+                                        var awayGoals = parseInt(result.split("-")[1]);
+                                        if (homeGoals < awayGoals) {
+                                            points += 3;
+                                        }else if (homeGoals == awayGoals) {
+                                            points += 1;
+                                        }
+                                     }
+                                    return rScale(points / awayFixtures.length);
+                                 })
+                                 .attr("class", "circleMark")
+                                 .attr("id", function(d, i) {
+                                     return "circle_" + d.id;
+                                 })
+                                 .on("mouseover", function() {
+
+                                        g.selectAll("path").remove();
+                                        d3.selectAll(".circleMark")
+                                            .attr("opacity", 0.5);
+                                        d3.select(this)
+                                            .classed("highlight", true);
+                                     
+                                        var currentId = d3.select(this)[0][0].__data__.id;
+                                        // filter away fixtures
+                                        var awayFixtures = collection.results.filter(function(d) {
+                                            return d.away_id == currentId
+                                        });
+                                        info.update(d3.select(this)[0][0].__data__, awayFixtures, collection.stadiums);
+                                        // change the colours of the ids from awayFixtures
+                                        for (var i=0; i < awayFixtures.length; i++){
+                                            var newId = awayFixtures[i].home_id;
+                                            var result = awayFixtures[i].result;
+                                            var homeGoals = parseInt(result.split("-")[0]);
+                                            var awayGoals = parseInt(result.split("-")[1]);
+                                            
+                                            // create path
+                                            var dataset = [];
+                                            dataset.push(d3.select(this)[0][0].__data__);
+                                            dataset.push(d3.select("#circle_" + (newId))[0][0].__data__);
+                                            
+                                            if (homeGoals < awayGoals) {
+                                                var pathColour = "#1F40FF";//"blue";
+                                            }else if (homeGoals == awayGoals) {
+                                                var pathColour = "#61E891";//"green";
+                                            }else{
+                                                var pathColour = "#E62020";//"red";
+                                            }
+                                            g.append("path")
+                                                .datum(dataset)
+                                                .attr("class", "lineConnect")
+                                                .attr("stroke", pathColour)
+                                                .attr("d", toLine);
+                                            
+                                            d3.select("#circle_" + (newId))
+                                                .classed("highlight", true);
+                                        }
+                                    })
+                                    .on("mouseout", function() {
+                                        info.update();
+                                        g.selectAll("path").remove();
+                                        // reset all circles' style
+                                        d3.selectAll(".circleMark")
+                                            .classed("highlight", false)
+                                            .attr("opacity", 0.9);
+                                    });
+                
+                map.on("viewreset", reset);
+                reset();
+                
+                function reset() {
+                    feature.attr("transform", function(d) {
+                        return "translate(" + 
+                                map.latLngToLayerPoint(d.LatLng).x + "," +
+                                map.latLngToLayerPoint(d.LatLng).y + ")";
+                    });
+                    g.selectAll("path")
+                        .attr("d", toLine);
+                };
+                
+                
+            })
+
+            
+</script>
